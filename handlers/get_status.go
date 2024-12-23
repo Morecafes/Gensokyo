@@ -1,6 +1,9 @@
 package handlers
 
 import (
+	"encoding/json"
+
+	"github.com/hoshinonyaruko/gensokyo/botstats"
 	"github.com/hoshinonyaruko/gensokyo/callapi"
 	"github.com/hoshinonyaruko/gensokyo/mylog"
 	"github.com/tencent-connect/botgo/openapi"
@@ -28,21 +31,25 @@ type Statistics struct {
 	PacketReceived  uint64 `json:"packet_received"`
 	PacketSent      uint64 `json:"packet_sent"`
 	PacketLost      uint32 `json:"packet_lost"`
-	MessageReceived uint64 `json:"message_received"`
-	MessageSent     uint64 `json:"message_sent"`
+	MessageReceived int    `json:"message_received"`
+	MessageSent     int    `json:"message_sent"`
 	DisconnectTimes uint32 `json:"disconnect_times"`
 	LostTimes       uint32 `json:"lost_times"`
 	LastMessageTime int64  `json:"last_message_time"`
 }
 
 func init() {
-	callapi.RegisterHandler("get_status", getStatus)
+	callapi.RegisterHandler("get_status", GetStatus)
 }
 
-func getStatus(client callapi.Client, api openapi.OpenAPI, apiv2 openapi.OpenAPI, message callapi.ActionMessage) {
+func GetStatus(client callapi.Client, api openapi.OpenAPI, apiv2 openapi.OpenAPI, message callapi.ActionMessage) (string, error) {
 
 	var response GetStatusResponse
 
+	messageReceived, messageSent, lastMessageTime, err := botstats.GetStats()
+	if err != nil {
+		mylog.Printf("get_status错误,获取机器人发信状态错误:%v", err)
+	}
 	response.Data = StatusData{
 		AppInitialized: true,
 		AppEnabled:     true,
@@ -51,14 +58,14 @@ func getStatus(client callapi.Client, api openapi.OpenAPI, apiv2 openapi.OpenAPI
 		Online:         true, //测试数据
 		Good:           true, //测试数据
 		Stat: Statistics{
-			PacketReceived:  1000,       //测试数据
-			PacketSent:      950,        //测试数据
-			PacketLost:      50,         //测试数据
-			MessageReceived: 500,        //测试数据
-			MessageSent:     490,        //测试数据
-			DisconnectTimes: 5,          //测试数据
-			LostTimes:       2,          //测试数据
-			LastMessageTime: 1677721600, //测试数据
+			PacketReceived:  1000,            //测试数据
+			PacketSent:      950,             //测试数据
+			PacketLost:      50,              //测试数据
+			MessageReceived: messageReceived, //实际数据
+			MessageSent:     messageSent,     //实际数据
+			DisconnectTimes: 5,               //测试数据
+			LostTimes:       2,               //测试数据
+			LastMessageTime: lastMessageTime, //实际数据
 		},
 	}
 	response.Message = ""
@@ -70,8 +77,16 @@ func getStatus(client callapi.Client, api openapi.OpenAPI, apiv2 openapi.OpenAPI
 
 	mylog.Printf("get_status: %+v\n", outputMap)
 
-	err := client.SendMessage(outputMap)
+	err = client.SendMessage(outputMap)
 	if err != nil {
 		mylog.Printf("Error sending message via client: %v", err)
 	}
+	//把结果从struct转换为json
+	result, err := json.Marshal(response)
+	if err != nil {
+		mylog.Printf("Error marshaling data: %v", err)
+		//todo 符合onebotv11 ws返回的错误码
+		return "", nil
+	}
+	return string(result), nil
 }

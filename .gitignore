@@ -3,9 +3,20 @@ config.yml
 *.db
 *.db.lock
 *.ini
+*.bat
 
 # Go specific
-*.exe
+gensokyo.exe
+gsk.exe
 
 # Ignore channel_temp
 channel_temp/
+
+# Ignore log
+log/
+
+# ignore dist
+webui/dist/
+
+#ignore data
+data/

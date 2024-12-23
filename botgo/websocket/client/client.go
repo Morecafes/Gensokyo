@@ -24,7 +24,7 @@ import (
 const DefaultQueueSize = 10000
 
 // 定义全局变量
-var global_s int64
+var Global_s int64
 
 // Setup 依赖注册
 func Setup() {
@@ -202,7 +202,7 @@ func (c *Client) readMessageToQueue() {
 			continue
 		}
 		// 更新 global_s 的值
-		atomic.StoreInt64(&global_s, payload.S)
+		atomic.StoreInt64(&Global_s, payload.S)
 
 		payload.RawMessage = message
 		log.Infof("%s receive %s message, %s", c.session, dto.OPMeans(payload.OPCode), string(message))
@@ -216,7 +216,7 @@ func (c *Client) readMessageToQueue() {
 
 // 在全局范围通过atomic访问s值与message_id的映射
 func GetGlobalS() int64 {
-	return atomic.LoadInt64(&global_s)
+	return atomic.LoadInt64(&Global_s)
 }
 
 func (c *Client) listenMessageAndHandle() {
@@ -235,10 +235,14 @@ func (c *Client) listenMessageAndHandle() {
 			c.readyHandler(payload)
 			continue
 		}
-		// 解析具体事件，并投递给业务注册的 handler
-		if err := event.ParseAndHandle(payload); err != nil {
-			log.Errorf("%s parseAndHandle failed, %v", c.session, err)
-		}
+
+		// 性能不够 报错也没用 就扬了
+		go event.ParseAndHandle(payload)
+
+		// // 解析具体事件，并投递给业务注册的 handler
+		// if err := event.ParseAndHandle(payload); err != nil {
+		// 	log.Errorf("%s parseAndHandle failed, %v", c.session, err)
+		// }
 	}
 	log.Infof("%s message queue is closed", c.session)
 }

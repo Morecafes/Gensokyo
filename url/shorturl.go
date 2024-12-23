@@ -1,6 +1,7 @@
 package url
 
 import (
+	"crypto/md5"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -13,10 +14,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/boltdb/bolt"
 	"github.com/gin-gonic/gin"
 	"github.com/hoshinonyaruko/gensokyo/config"
 	"github.com/hoshinonyaruko/gensokyo/mylog"
+	"go.etcd.io/bbolt"
 )
 
 const (
@@ -24,7 +25,7 @@ const (
 )
 
 var (
-	db *bolt.DB
+	db *bbolt.DB
 )
 
 const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -47,13 +48,13 @@ func generateHashedString(url string) string {
 // 这里的数据库是在init创建的
 func init() {
 	var err error
-	db, err = bolt.Open("gensokyo.db", 0600, nil)
+	db, err = bbolt.Open("gensokyo.db", 0600, nil)
 	if err != nil {
 		panic(err)
 	}
 
 	// Ensure bucket exists
-	err = db.Update(func(tx *bolt.Tx) error {
+	err = db.Update(func(tx *bbolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists([]byte(bucketName))
 		if err != nil {
 			return fmt.Errorf("failed to create or get the bucket: %v", err)
@@ -72,6 +73,7 @@ func isValidURL(toTest string) bool {
 		return false
 	}
 	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		mylog.Printf("链接%v缺少协议头,请添加https://或http://", toTest)
 		return false
 	}
 
@@ -124,17 +126,26 @@ func GenerateShortURL(longURL string) string {
 	// 根据portValue确定协议
 	protocol := "http"
 	portValue := config.GetPortValue()
-	if portValue == "443" {
+	if portValue == "443" ||config.GetForceSsl(){
 		protocol = "https"
 	}
 
 	if config.GetLotusValue() {
 		serverDir := config.GetServer_dir()
 		requestURL := fmt.Sprintf("%s://%s:%s/url", protocol, serverDir, portValue) // 改变变量名以避免冲突
-
 		// 使用 url.Values 构造请求数据
 		formData := url.Values{}
-		formData.Set("url", (longURL))
+		formData.Set("url", longURL)
+		// 获取密码
+		password := config.GetLotusPassword()
+		// 如果密码不为空，则计算 MD5 值并添加 token
+		if password != "" {
+			hasher := md5.New()
+			hasher.Write([]byte(password))
+			token := hex.EncodeToString(hasher.Sum(nil))
+			// 添加 token
+			formData.Set("token", token)
+		}
 
 		// 创建请求
 		req, err := http.NewRequest("POST", requestURL, strings.NewReader(formData.Encode()))
@@ -158,6 +169,7 @@ func GenerateShortURL(longURL string) string {
 		// 处理响应
 		if resp.StatusCode != http.StatusOK {
 			mylog.Printf("Received non-200 status code: %d from server: %v", resp.StatusCode, requestURL)
+			mylog.Printf("返回码400请检查lotus密码是否正确!")
 			return ""
 		}
 
@@ -210,7 +222,7 @@ func GenerateShortURL(longURL string) string {
 
 func existsInDB(shortURL string) (bool, error) {
 	exists := false
-	err := db.View(func(tx *bolt.Tx) error {
+	err := db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte(bucketName))
 		v := b.Get([]byte(shortURL))
 		if v != nil {
@@ -230,7 +242,7 @@ func getLongURLFromDB(shortURL string) (string, error) {
 	// 根据portValue确定协议
 	protocol := "http"
 	portValue := config.GetPortValue()
-	if portValue == "443" {
+	if portValue == "443" ||config.GetForceSsl(){
 		protocol = "https"
 	}
 
@@ -257,7 +269,7 @@ func getLongURLFromDB(shortURL string) (string, error) {
 		return response["longURL"].(string), nil
 	} else {
 		var longURL string
-		err := db.View(func(tx *bolt.Tx) error {
+		err := db.View(func(tx *bbolt.Tx) error {
 			b := tx.Bucket([]byte(bucketName))
 			v := b.Get([]byte(shortURL))
 			if v == nil {
@@ -272,7 +284,7 @@ func getLongURLFromDB(shortURL string) (string, error) {
 
 // storeURL 存储长URL和对应的短URL
 func storeURL(shortURL, longURL string) error {
-	return db.Update(func(tx *bolt.Tx) error {
+	return db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte(bucketName))
 		return b.Put([]byte(shortURL), []byte(longURL))
 	})
@@ -305,10 +317,13 @@ func isMalicious(decoded string) bool {
 // 短链接服务handler
 func CreateShortURLHandler(c *gin.Context) {
 	rawURL := c.PostForm("url")
+	token := c.PostForm("token") // 接收 token 参数
+
 	longURL := decodeBase64IfNeeded(rawURL)
 
-	if longURL == "" || isMalicious(longURL) || !isValidURL(longURL) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid URL"})
+	// 检查 URL 是否有效，以及在密码不为空时检查 token
+	if longURL == "" || isMalicious(longURL) || !isValidURL(longURL) || (config.GetLotusPassword() != "" && !isValidToken(token)) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid URL or token"})
 		return
 	}
 
@@ -320,6 +335,24 @@ func CreateShortURLHandler(c *gin.Context) {
 	baseUrl := "https://" + serverDir
 
 	c.JSON(http.StatusOK, gin.H{"shortURL": baseUrl + "/url/" + shortURL})
+}
+
+// isValidToken 检查 token 是否有效
+func isValidToken(token string) bool {
+	// 从配置中获取密码
+	password := config.GetLotusPassword()
+
+	// 如果密码为空，直接返回 true
+	if password == "" {
+		return true
+	}
+
+	// 计算 MD5
+	hasher := md5.New()
+	hasher.Write([]byte(password))
+	md5Password := hex.EncodeToString(hasher.Sum(nil))
+
+	return md5Password == token
 }
 
 // 短链接baseurl

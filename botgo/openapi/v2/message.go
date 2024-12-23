@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/go-resty/resty/v2"
 	"github.com/tidwall/gjson"
 
 	"github.com/tencent-connect/botgo/dto"
@@ -69,6 +70,20 @@ func (o *openAPIv2) PostMessage(ctx context.Context, channelID string, msg *dto.
 	}
 
 	return resp.Result().(*dto.Message), nil
+}
+
+// PostFourm 发帖子
+func (o *openAPIv2) PostFourm(ctx context.Context, channelID string, msg *dto.FourmToCreate) (*dto.Forum, error) {
+	resp, err := o.request(ctx).
+		SetResult(dto.Forum{}).
+		SetPathParam("channel_id", channelID).
+		SetBody(msg).
+		Put(o.getURL(fourmMessagesURI))
+	if err != nil {
+		return nil, err
+	}
+
+	return resp.Result().(*dto.Forum), nil
 }
 
 // PostMessageMultipart 发送消息使用multipart/form-data
@@ -160,6 +175,36 @@ func (o *openAPIv2) RetractMessage(ctx context.Context,
 	return err
 }
 
+// RetractMessage 撤回群消息
+func (o *openAPIv2) RetractGroupMessage(ctx context.Context,
+	groupID, msgID string, options ...openapi.RetractMessageOption) error {
+	request := o.request(ctx).
+		SetPathParam("group_id", groupID).
+		SetPathParam("message_id", string(msgID))
+	for _, option := range options {
+		if option == openapi.RetractMessageOptionHidetip {
+			request = request.SetQueryParam("hidetip", "true")
+		}
+	}
+	_, err := request.Delete(o.getURL(groupMessagesURL))
+	return err
+}
+
+// RetractMessage 撤回私聊消息
+func (o *openAPIv2) RetractC2CMessage(ctx context.Context,
+	UserID, msgID string, options ...openapi.RetractMessageOption) error {
+	request := o.request(ctx).
+		SetPathParam("user_id", UserID).
+		SetPathParam("message_id", string(msgID))
+	for _, option := range options {
+		if option == openapi.RetractMessageOptionHidetip {
+			request = request.SetQueryParam("hidetip", "true")
+		}
+	}
+	_, err := request.Delete(o.getURL(c2cMessageURI))
+	return err
+}
+
 // PostSettingGuide 发送设置引导消息, atUserID为要at的用户
 func (o *openAPIv2) PostSettingGuide(ctx context.Context,
 	channelID string, atUserIDs []string) (*dto.Message, error) {
@@ -191,16 +236,39 @@ func getGroupURLBySendType(msgType dto.SendType) uri {
 }
 
 // PostGroupMessage 回复群消息
-func (o *openAPIv2) PostGroupMessage(ctx context.Context, groupID string, msg dto.APIMessage) (*dto.Message, error) {
-	resp, err := o.request(ctx).
-		SetResult(dto.Message{}).
-		SetPathParam("group_id", groupID).
-		SetBody(msg).
-		Post(o.getURL(getGroupURLBySendType(msg.GetSendType())))
+func (o *openAPIv2) PostGroupMessage(ctx context.Context, groupID string, msg dto.APIMessage) (*dto.GroupMessageResponse, error) {
+	var resp *resty.Response
+	var err error
+
+	msgType := msg.GetSendType()
+	switch msgType {
+	case dto.RichMedia:
+		resp, err = o.request(ctx).
+			SetResult(dto.MediaResponse{}). // 设置为媒体响应类型
+			SetPathParam("group_id", groupID).
+			SetBody(msg).
+			Post(o.getURL(getGroupURLBySendType(msgType)))
+	default:
+		resp, err = o.request(ctx).
+			SetResult(dto.Message{}). // 设置为消息类型
+			SetPathParam("group_id", groupID).
+			SetBody(msg).
+			Post(o.getURL(getGroupURLBySendType(msgType)))
+	}
+
 	if err != nil {
 		return nil, err
 	}
-	return resp.Result().(*dto.Message), nil
+
+	result := &dto.GroupMessageResponse{}
+	switch msgType {
+	case dto.RichMedia:
+		result.MediaResponse = resp.Result().(*dto.MediaResponse)
+	default:
+		result.Message = resp.Result().(*dto.Message)
+	}
+
+	return result, nil
 }
 
 func getC2CURLBySendType(msgType dto.SendType) uri {
@@ -213,14 +281,58 @@ func getC2CURLBySendType(msgType dto.SendType) uri {
 }
 
 // PostC2CMessage 回复C2C消息
-func (o *openAPIv2) PostC2CMessage(ctx context.Context, userID string, msg dto.APIMessage) (*dto.Message, error) {
-	resp, err := o.request(ctx).
-		SetResult(dto.Message{}).
-		SetPathParam("user_id", userID).
-		SetBody(msg).
-		Post(o.getURL(getC2CURLBySendType(msg.GetSendType())))
+func (o *openAPIv2) PostC2CMessage(ctx context.Context, userID string, msg dto.APIMessage) (*dto.C2CMessageResponse, error) {
+	var resp *resty.Response
+	var err error
+
+	msgType := msg.GetSendType()
+	switch msgType {
+	case dto.RichMedia:
+		resp, err = o.request(ctx).
+			SetResult(dto.MediaResponse{}). // 设置为媒体响应类型
+			SetPathParam("user_id", userID).
+			SetBody(msg).
+			Post(o.getURL(getC2CURLBySendType(msgType)))
+	default:
+		resp, err = o.request(ctx).
+			SetResult(dto.Message{}). // 设置为消息类型
+			SetPathParam("user_id", userID).
+			SetBody(msg).
+			Post(o.getURL(getC2CURLBySendType(msgType)))
+	}
+
 	if err != nil {
 		return nil, err
 	}
-	return resp.Result().(*dto.Message), nil
+
+	result := &dto.C2CMessageResponse{}
+	switch msgType {
+	case dto.RichMedia:
+		result.MediaResponse = resp.Result().(*dto.MediaResponse)
+	default:
+		result.Message = resp.Result().(*dto.Message)
+	}
+
+	return result, nil
+}
+
+// PostC2CMessage 回复C2CSSE消息
+func (o *openAPIv2) PostC2CMessageSSE(ctx context.Context, userID string, msg dto.APIMessage) (*dto.C2CMessageResponse, error) {
+	var resp *resty.Response
+	var err error
+
+	resp, err = o.request(ctx).
+		SetResult(dto.Message{}). // 设置为消息类型
+		SetPathParam("user_id", userID).
+		SetBody(msg).
+		Post(o.getURL("/v2/users/{user_id}/messages"))
+
+	if err != nil {
+		return nil, err
+	}
+
+	result := &dto.C2CMessageResponse{}
+	result.Message = resp.Result().(*dto.Message)
+
+	return result, nil
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -20,6 +21,7 @@ type WebSocketServerClient struct {
 	Conn  *websocket.Conn
 	API   openapi.OpenAPI
 	APIv2 openapi.OpenAPI
+	mu    sync.Mutex // 互斥锁保护 conn
 }
 
 var upgrader = websocket.Upgrader{
@@ -59,17 +61,18 @@ func wsHandler(api openapi.OpenAPI, apiV2 openapi.OpenAPI, p *Processor.Processo
 		token = c.Query("access_token")
 	}
 
-	if token == "" {
-		mylog.Printf("Connection failed due to missing token. Headers: %v", c.Request.Header)
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Missing token"})
-		return
-	}
-
-	// 使用GetWsServerToken()来获取有效的token
+	// 获取配置中的有效 token
 	validToken := config.GetWsServerToken()
-	if token != validToken {
-		mylog.Printf("Connection failed due to incorrect token. Headers: %v, Provided token: %s", c.Request.Header, tokenFromHeader)
-		c.JSON(http.StatusForbidden, gin.H{"error": "Incorrect token"})
+
+	// 如果配置的 token 不为空，但提供的 token 为空或不匹配
+	if validToken != "" && (token == "" || token != validToken) {
+		if token == "" {
+			mylog.Printf("Connection failed due to missing token. Headers: %v", c.Request.Header)
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Missing token"})
+		} else {
+			mylog.Printf("Connection failed due to incorrect token. Headers: %v, Provided token: %s", c.Request.Header, token)
+			c.JSON(http.StatusForbidden, gin.H{"error": "Incorrect token"})
+		}
 		return
 	}
 
@@ -92,7 +95,13 @@ func wsHandler(api openapi.OpenAPI, apiV2 openapi.OpenAPI, p *Processor.Processo
 	p.WsServerClients = append(p.WsServerClients, client)
 
 	// 获取botID
-	botID := config.GetAppID()
+
+	var botID uint64
+	if config.GetUseUin() {
+		botID = uint64(config.GetUinint64())
+	} else {
+		botID = config.GetAppID()
+	}
 
 	// 发送连接成功的消息
 	message := map[string]interface{}{
@@ -143,11 +152,14 @@ func processWSMessage(client *WebSocketServerClient, msg []byte) {
 
 	mylog.Println("Received from WebSocket onebotv11 client:", wsclient.TruncateMessage(message, 500))
 	// 调用callapi
-	callapi.CallAPIFromDict(client, client.API, client.APIv2, message)
+	go callapi.CallAPIFromDict(client, client.API, client.APIv2, message)
 }
 
 // 发信息给client
 func (c *WebSocketServerClient) SendMessage(message map[string]interface{}) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	msgBytes, err := json.Marshal(message)
 	if err != nil {
 		mylog.Println("Error marshalling message:", err)

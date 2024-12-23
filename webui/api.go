@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/hoshinonyaruko/gensokyo/config"
 	"github.com/hoshinonyaruko/gensokyo/mylog"
+	"github.com/shirou/gopsutil/cpu"
+	"github.com/shirou/gopsutil/disk"
+	"github.com/shirou/gopsutil/host"
+	"github.com/shirou/gopsutil/mem"
+	"github.com/shirou/gopsutil/process"
 	"github.com/tencent-connect/botgo/dto"
 	"github.com/tencent-connect/botgo/openapi"
 )
@@ -31,8 +37,18 @@ func CombinedMiddleware(api openapi.OpenAPI, apiV2 openapi.OpenAPI) gin.HandlerF
 		if strings.HasPrefix(c.Request.URL.Path, "/webui/api") {
 			// 处理API请求
 			appIDStr := config.GetAppIDStr()
+			//todo 完善logs的 get方法 来获取历史日志
 			// 检查路径是否匹配 `/api/{uin}/process/logs`
 			if strings.HasPrefix(c.Param("filepath"), "/api/") && strings.HasSuffix(c.Param("filepath"), "/process/logs") {
+				if c.GetHeader("Upgrade") == "websocket" {
+					mylog.WsHandlerWithDependencies(c)
+				} else {
+					getProcessLogs(c)
+				}
+				return
+			}
+			//主页日志
+			if c.Param("filepath") == "/api/logs" {
 				if c.GetHeader("Upgrade") == "websocket" {
 					mylog.WsHandlerWithDependencies(c)
 				} else {
@@ -63,6 +79,20 @@ func CombinedMiddleware(api openapi.OpenAPI, apiV2 openapi.OpenAPI) gin.HandlerF
 			//删除当前选中机器人的配置并生成新的配置
 			if c.Param("filepath") == "/api/"+appIDStr+"/config" && c.Request.Method == http.MethodDelete {
 				handleDeleteConfig(c)
+				return
+			}
+			//结束当前实例的进程
+			if c.Param("filepath") == "/api/"+appIDStr+"/process" && c.Request.Method == http.MethodDelete {
+				// 正常退出
+				os.Exit(0)
+				return
+			}
+			//进程监控
+			if c.Param("filepath") == "/api/status" && c.Request.Method == http.MethodGet {
+				// 检查操作系统是否不为Android
+				if runtime.GOOS != "android" {
+					handleSysInfo(c)
+				}
 				return
 			}
 			//更新当前选中机器人的配置并重启应用(保持地址不变)
@@ -326,6 +356,7 @@ func HandleProcessStatusRequest(c *gin.Context) {
 	c.JSON(http.StatusOK, responseData)
 }
 
+// 待完善 从mylog通道取出日志信息,然后一股脑返回
 func getProcessLogs(c *gin.Context) {
 	c.JSON(200, []interface{}{})
 }
@@ -479,4 +510,49 @@ func HandleCheckLoginStatusRequest(c *gin.Context) {
 	} else {
 		c.JSON(http.StatusOK, gin.H{"isLoggedIn": false, "error": "Invalid cookie"})
 	}
+}
+
+func handleSysInfo(c *gin.Context) {
+	// 获取CPU使用率
+	cpuPercent, _ := cpu.Percent(time.Second, false)
+
+	// 获取内存信息
+	vmStat, _ := mem.VirtualMemory()
+
+	// 获取磁盘使用情况
+	diskStat, _ := disk.Usage("/")
+
+	// 获取系统启动时间
+	bootTime, _ := host.BootTime()
+
+	// 获取当前进程信息
+	proc, _ := process.NewProcess(int32(os.Getpid()))
+	procPercent, _ := proc.CPUPercent()
+	memInfo, _ := proc.MemoryInfo()
+	procStartTime, _ := proc.CreateTime()
+
+	// 构造返回的JSON数据
+	sysInfo := gin.H{
+		"cpu_percent": cpuPercent[0], // CPU使用率
+		"memory": gin.H{
+			"total":     vmStat.Total,       // 总内存
+			"available": vmStat.Available,   // 可用内存
+			"percent":   vmStat.UsedPercent, // 内存使用率
+		},
+		"disk": gin.H{
+			"total":   diskStat.Total,       // 磁盘总容量
+			"free":    diskStat.Free,        // 磁盘剩余空间
+			"percent": diskStat.UsedPercent, // 磁盘使用率
+		},
+		"boot_time": bootTime, // 系统启动时间
+		"process": gin.H{
+			"pid":         proc.Pid,      // 当前进程ID
+			"status":      "running",     // 进程状态，这里假设为运行中
+			"memory_used": memInfo.RSS,   // 进程使用的内存
+			"cpu_percent": procPercent,   // 进程CPU使用率
+			"start_time":  procStartTime, // 进程启动时间
+		},
+	}
+	// 返回JSON数据
+	c.JSON(http.StatusOK, sysInfo)
 }

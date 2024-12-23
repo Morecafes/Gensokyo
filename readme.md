@@ -40,27 +40,47 @@ _✨ 基于 [OneBot](https://github.com/howmanybots/onebot/blob/master/README.md
   ·
   <a href="https://github.com/hoshinonyaruko/gensokyo/blob/master/CONTRIBUTING.md">参与贡献</a>
 </p>
+<p align="center">
+  <a href="https://gensokyo.bot">项目主页:gensokyo.bot</a>
+</p>
 
+## 引用
+- [`tencent-connect/botgo`](https://github.com/tencent-connect/botgo): 本项目引用了此项目,并做了一些改动.
 
-## 兼容性
+## 介绍
 gensokyo兼容 [OneBot-v11](https://github.com/botuniverse/onebot-11) ，并在其基础上做了一些扩展，详情请看 OneBot 的文档。
 
-可将官方的websocket和api转换至onebotv11标准,和koishi,nonebot2,trss等项目的onebot适配器相连接使用.
+Gensokyo文档(施工中):[起步](/docs/起步-注册QQ开放平台&启动gensokyo.md)
+
+可将官方的websocket和api转换至onebotv11标准,
+
+支持连接koishi,nonebot2,trss,zerobot,MiraiCQ,hoshino..
+
+支持连接tata,派蒙,炸毛,早苗,yobot...
+
+支持连接Mirai(Overflow)...
+
+可以与支持onebotV11适配器的项目相连接使用.
 
 实现插件开发和用户开发者无需重新开发,复用过往生态的插件和使用体验.
 
-目前还处于早期阶段.....交流群:196173384
+持续完善中.....交流群:196173384
 
 欢迎测试,询问任何有关使用的问题,有问必答,有难必帮~
+
+[Gensokyo临时文档](https://www.yuque.com/km57bt/hlhnxg/mw7gm8dlpccd324e)展开左侧折叠栏,临时文档包含markdown定义、额外api文档等内容
+
+后续会将文档独立，因为语雀文档公开查看无需登录需要vip，故暂时放在我的机器人文档中。临时文档也包含了Gensokyo的完整编译教程。
 
 ## 特别鸣谢
 
 - [`mnixry/nonebot-plugin-gocqhttp`](https://github.com/mnixry/nonebot-plugin-gocqhttp/): 本项目采用了mnixry编写的前端,并实现了与它对应的,基于qq官方api的后端api.
+- 特别鸣谢[`dk 盾`](https://www.dkdun.cn/),友情赞助服务器资源
 
 ### 接口
 
-- [ ] HTTP API
-- [ ] 反向 HTTP POST
+- [x] HTTP API
+- [x] 反向 HTTP POST
 - [x] 正向 WebSocket
 - [x] 反向 WebSocket
 
@@ -68,10 +88,23 @@ gensokyo兼容 [OneBot-v11](https://github.com/botuniverse/onebot-11) ，并在�
 
 > 拓展 API 可前往 [文档](docs/cqhttp.md) 查看
 
-- [x] 配合gocq-bridge连接多个ws/wss
+- [x] 连接多个ws地址
 - [x] 将频道虚拟成群事件
 - [x] 将私信虚拟成频道或群事件
 - [x] webui,可以在webui修改配置,查看频道列表,发送信息
+- [x] 方便过审的指令黑白名单
+- [x] 自动url转换(自备域名)
+- [x] 可自定义图片压缩\图床服务
+- [x] 可编辑的数据库
+- [x] 支持array和信息段
+- [x] 文字,图片,语音,视频,MD,支持多种类型发送
+- [x] 支持全域,频道,频道私聊,群,群私聊
+- [x] 主动信息失败自动转被动,提高信息传达可靠性
+- [x] 提前于官方支持群列表 群成员 api
+- [x] 完善的重连,健壮的连接能力.
+- [x] 支持[CQ:markdown,data=] Markdown发送
+- [x] [`markdown文档`](https://www.yuque.com/km57bt/hlhnxg/ddkv4a2lgcswitei)
+- [x] 持续更新~
 
 
 ### 实现
@@ -143,7 +176,7 @@ todo,正在施工中
 | /can_send_image√         | [检查是否可以发送图片] |
 | /can_send_record         | [检查是否可以发送语音] |
 | /get_version_info√       | [获取版本信息]         |
-| /set_restart             | [重启 gensokyo]       |
+| /set_restart√             | [重启 gensokyo]       |
 | /.handle_quick_operation | [对事件执行快速操作]   |
 
 
@@ -155,7 +188,7 @@ todo,正在施工中
 | /get_image                  | [获取图片信息]         |
 | /get_msg                    | [获取消息]             |
 | /get_forward_msg            | [获取合并转发内容]     |
-| /send_group_forward_msg     | [发送合并转发(群)]     |
+| /send_group_forward_msg√     | [发送合并转发(群)]     |
 | /.get_word_slices           | [获取中文分词]         |
 | /.ocr_image                 | [图片 OCR]             |
 | /get_group_system_msg       | [获取群系统消息]       |
@@ -163,7 +196,7 @@ todo,正在施工中
 | /get_group_root_files       | [获取群根目录文件列表] |
 | /get_group_files_by_folder  | [获取群子目录文件列表] |
 | /get_group_file_url         | [获取群文件资源链接]   |
-| /get_status                 | [获取状态]             |
+| /get_status√                 | [获取状态]             |
 
 
 </details>
@@ -175,8 +208,8 @@ todo,正在施工中
 
 | 事件类型 | Event            |
 | -------- | ---------------- |
-| 消息事件 | [私聊信息]       |
-| 消息事件 | [群消息]         |
+| 消息事件 | [私聊信息]√       |
+| 消息事件 | [群消息]√         |
 | 通知事件 | [群文件上传]     |
 | 通知事件 | [群管理员变动]   |
 | 通知事件 | [群成员减少]     |
@@ -218,4 +251,4 @@ todo,正在施工中
 
 ## 性能
 
-有待测试
+10mb内存占用 端口错开可多开 稳定运行无报错

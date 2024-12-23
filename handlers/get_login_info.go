@@ -1,7 +1,7 @@
 package handlers
 
 import (
-	"fmt"
+	"encoding/json"
 
 	"github.com/hoshinonyaruko/gensokyo/callapi"
 	"github.com/hoshinonyaruko/gensokyo/config"
@@ -19,24 +19,32 @@ type LoginInfoResponse struct {
 
 type LoginInfoData struct {
 	Nickname string `json:"nickname"`
-	UserID   string `json:"user_id"` // Assuming UserID is a string type based on the pseudocode
+	UserID   int64  `json:"user_id"` // Assuming UserID is a string type based on the pseudocode
 }
 
 func init() {
-	callapi.RegisterHandler("get_login_info", getLoginInfo)
+	callapi.RegisterHandler("get_login_info", GetLoginInfo)
 }
 
-func getLoginInfo(client callapi.Client, api openapi.OpenAPI, apiv2 openapi.OpenAPI, message callapi.ActionMessage) {
+func GetLoginInfo(client callapi.Client, api openapi.OpenAPI, apiv2 openapi.OpenAPI, message callapi.ActionMessage) (string, error) {
 
 	var response LoginInfoResponse
+	var botname string
+	var globalBotID uint64
 
-	// Assuming 全局_botid is a global or environment variable
-	globalBotID := config.GetAppID() // Replace with the actual global variable or value
-	userIDStr := fmt.Sprintf("%d", globalBotID)
+	// 获取机器人ID
+	if config.GetUseUin() {
+		globalBotID = uint64(config.GetUinint64())
+	} else {
+		globalBotID = config.GetAppID()
+	}
+
+	//userIDStr := fmt.Sprintf("%d", globalBotID)
+	botname = config.GetCustomBotName()
 
 	response.Data = LoginInfoData{
-		Nickname: "gensokyo全域机器人",
-		UserID:   userIDStr,
+		Nickname: botname,
+		UserID:   int64(globalBotID),
 	}
 	response.Message = ""
 	response.RetCode = 0
@@ -54,6 +62,12 @@ func getLoginInfo(client callapi.Client, api openapi.OpenAPI, apiv2 openapi.Open
 	} else {
 		mylog.Printf("响应get_login_info: %+v", outputMap)
 	}
-
-	return
+	//把结果从struct转换为json
+	result, err := json.Marshal(response)
+	if err != nil {
+		mylog.Printf("Error marshaling data: %v", err)
+		//todo 符合onebotv11 ws返回的错误码
+		return "", nil
+	}
+	return string(result), nil
 }
